@@ -8,7 +8,7 @@ const toastEl = $("#toast");
 
 const STORAGE_KEY = "mega-brain-state-v2";
 const defaultState = {
-  projects: [{ id: "workspace", name: "Workspace local", threads: [{ id: "welcome", title: "Agente de código", messages: [] }] }],
+  projects: [{ id: "workspace", name: "Local workspace", threads: [{ id: "welcome", title: "Coding agent", messages: [] }] }],
   activeProjectId: "workspace",
   activeThreadId: "welcome",
   settings: { endpoint: "http://localhost:1234/v1", model: "auto", taskMode: "code", contextLimit: 8 },
@@ -31,10 +31,10 @@ async function boot() {
   const [configResponse, workspaceResponse, promptResponse] = await Promise.all([fetch("/api/config"), fetch("/api/workspace"), fetch("/agent_prompt.txt")]);
   if (configResponse.ok) config = await configResponse.json();
   const workspace = workspaceResponse.ok ? await workspaceResponse.json() : { files: [] };
-  defaultSystemPrompt = promptResponse.ok ? await promptResponse.text() : "Voce e o Mega Brain, agente local de engenharia de software.";
+  defaultSystemPrompt = promptResponse.ok ? await promptResponse.text() : "You are Mega Brain, a local software engineering agent.";
   renderModels(); renderProjects(); renderThreads(); renderSkills();
-  $("#workspaceLabel").textContent = `${workspace.files.length} arquivos indexados`;
-  statusEl.textContent = "LM Studio pronto";
+  $("#workspaceLabel").textContent = `${workspace.files.length} files indexed`;
+  statusEl.textContent = "LM Studio ready";
   renderConversation(); updateContextMeter(0, selectedModelWindow());
 }
 
@@ -62,39 +62,52 @@ function renderConversation() {
 }
 function addMessage(role, content) {
   const article = document.createElement("article"); article.className = `message ${role}`;
-  const avatar = document.createElement("div"); avatar.className = "message-avatar"; avatar.innerHTML = role === "user" ? "EU" : "<img src='./mega-brain-space.svg' alt='Mega Brain no espaço'><span>✦</span>";
+  const avatar = document.createElement("div"); avatar.className = "message-avatar"; avatar.innerHTML = role === "user" ? "ME" : "<img src='./mega-brain-space.svg' alt='Mega Brain in space'><span>✦</span>";
   const body = document.createElement("div"); body.className = "message-body";
   body.innerHTML = `<div class="message-meta"><strong>${role === "user" ? "Você" : "Mega Brain"}</strong><span>${role === "user" ? "INPUT" : "LOCAL MODEL"}</span></div><div class="bubble">${escapeText(content)}</div>`;
   article.append(avatar, body); messagesEl.append(article); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 function selectedModelWindow() { return config.models.find((model) => model.id === (state.settings.model === "auto" ? "qwen2.5-coder-14b-instruct" : state.settings.model))?.window || config.contextWindow; }
 function updateContextMeter(used, window) {
-  const percent = Math.min(100, Math.round((used / Math.max(1, window)) * 100)); $("#contextPercent").textContent = `${percent}%`; $("#contextTokens").textContent = `${used.toLocaleString("pt-BR")} / ${(window / 1000).toFixed(1)}k`; $("#contextRing").style.setProperty("--percent", `${percent * 3.6}deg`);
+  const percent = Math.min(100, Math.round((used / Math.max(1, window)) * 100)); $("#contextPercent").textContent = `${percent}%`; $("#contextTokens").textContent = `${used.toLocaleString("en-US")} / ${(window / 1000).toFixed(1)}k`; $("#contextRing").style.setProperty("--percent", `${percent * 3.6}deg`);
 }
 function compactMessages() { const thread = activeThread(); return thread.messages.slice(-state.settings.contextLimit); }
 function cleanAgentAnswer(answer) { return answer.replace(/<mega-write\s+path="[^"]+">[\s\S]*?<\/mega-write>/g, "").trim(); }
 async function applyAgentWrites(answer) {
   const writes = [...answer.matchAll(/<mega-write\s+path="([^"]+)">([\s\S]*?)<\/mega-write>/g)]; const saved = [];
-  for (const [, path, content] of writes) { const response = await fetch("/api/workspace/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content }) }); if (!response.ok) throw new Error(`Falha ao salvar ${path}: ${await response.text()}`); saved.push(path); }
+  for (const [, path, content] of writes) { const response = await fetch("/api/workspace/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content }) }); if (!response.ok) throw new Error(`Failed to save ${path}: ${await response.text()}`); saved.push(path); }
   return saved;
 }
 async function requestCompletion(prompt) {
-  const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: state.settings.model, taskMode: state.settings.taskMode, messages: [{ role: "system", content: defaultSystemPrompt }, ...compactMessages().map((message) => ({ role: message.role, content: message.content })), { role: "user", content: `${prompt}\n\nArquivos anexados ao contexto: ${pendingFiles.map((file) => file.name).join(", ") || "nenhum"}` }], temperature: 0.35, stream: false, baseUrl: state.settings.endpoint }) });
-  const text = await response.text(); if (!response.ok) throw new Error(text || `HTTP ${response.status}`); const data = JSON.parse(text); const answer = data.choices?.[0]?.message?.content?.trim() || "Sem conteúdo na resposta."; const saved = await applyAgentWrites(answer); if (data.mega) updateContextMeter(data.mega.estimatedTokens, data.mega.contextWindow); return `${cleanAgentAnswer(answer)}${saved.length ? `\n\nArquivos salvos: ${saved.join(", ")}` : ""}`.trim();
+  const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: state.settings.model, taskMode: state.settings.taskMode, messages: [{ role: "system", content: defaultSystemPrompt }, ...compactMessages().map((message) => ({ role: message.role, content: message.content })), { role: "user", content: `${prompt}\n\nFiles attached to context: ${pendingFiles.map((file) => file.name).join(", ") || "none"}` }], temperature: 0.35, stream: false, baseUrl: state.settings.endpoint }) });
+  const text = await response.text(); if (!response.ok) throw new Error(text || `HTTP ${response.status}`); const data = JSON.parse(text); const answer = data.choices?.[0]?.message?.content?.trim() || "No content returned."; const saved = await applyAgentWrites(answer); if (data.mega) updateContextMeter(data.mega.estimatedTokens, data.mega.contextWindow); return `${cleanAgentAnswer(answer)}${saved.length ? `\n\nFiles saved: ${saved.join(", ")}` : ""}`.trim();
 }
 async function sendPrompt() {
   const prompt = promptInput.value.trim(); if (!prompt || sendButton.disabled) return; promptInput.value = ""; const thread = activeThread(); thread.messages.push({ role: "user", content: prompt }); addMessage("user", prompt); sendButton.disabled = true; statusEl.textContent = "Mega Brain pensando";
-  try { const answer = await requestCompletion(prompt); thread.messages.push({ role: "assistant", content: answer }); addMessage("assistant", answer); saveState(); statusEl.textContent = "LM Studio pronto"; } catch (error) { addMessage("assistant", `Falha na execução: ${error.message}`); statusEl.textContent = "Verifique LM Studio"; } finally { sendButton.disabled = false; promptInput.focus(); pendingFiles = []; $("#attachmentLabel").textContent = "Contexto compacto ativo"; }
+  try { const answer = await requestCompletion(prompt); thread.messages.push({ role: "assistant", content: answer }); addMessage("assistant", answer); saveState(); statusEl.textContent = "LM Studio ready"; } catch (error) { addMessage("assistant", `Execution failed: ${error.message}`); statusEl.textContent = "Check LM Studio"; } finally { sendButton.disabled = false; promptInput.focus(); pendingFiles = []; $("#attachmentLabel").textContent = "Compact context active"; }
 }
 
 composer.addEventListener("submit", (event) => { event.preventDefault(); sendPrompt(); });
 promptInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); composer.requestSubmit(); } });
 promptInput.addEventListener("input", () => { promptInput.style.height = "auto"; promptInput.style.height = `${Math.min(promptInput.scrollHeight, 180)}px`; });
-$("#newChatButton").addEventListener("click", () => { const thread = { id: crypto.randomUUID(), title: "Nova conversa", messages: [] }; activeProject().threads.unshift(thread); state.activeThreadId = thread.id; saveState(); renderThreads(); renderConversation(); promptInput.focus(); });
-$("#newProjectButton").addEventListener("click", () => { const name = prompt("Nome do projeto:", "Novo projeto"); if (!name?.trim()) return; const project = { id: crypto.randomUUID(), name: name.trim(), threads: [{ id: crypto.randomUUID(), title: "Agente de código", messages: [] }] }; state.projects.unshift(project); state.activeProjectId = project.id; state.activeThreadId = project.threads[0].id; saveState(); renderProjects(); renderThreads(); renderConversation(); });
+$("#newChatButton").addEventListener("click", () => { const thread = { id: crypto.randomUUID(), title: "New conversation", messages: [] }; activeProject().threads.unshift(thread); state.activeThreadId = thread.id; saveState(); renderThreads(); renderConversation(); promptInput.focus(); });
+$("#newProjectButton").addEventListener("click", () => { const name = prompt("Project name:", "New project"); if (!name?.trim()) return; const project = { id: crypto.randomUUID(), name: name.trim(), threads: [{ id: crypto.randomUUID(), title: "Coding agent", messages: [] }] }; state.projects.unshift(project); state.activeProjectId = project.id; state.activeThreadId = project.threads[0].id; saveState(); renderProjects(); renderThreads(); renderConversation(); });
 $("#taskModeInput").addEventListener("change", (event) => { state.settings.taskMode = event.target.value; saveState(); }); $("#modelInput").addEventListener("change", (event) => { state.settings.model = event.target.value; saveState(); updateContextMeter(0, selectedModelWindow()); });
 document.querySelectorAll("[data-prompt]").forEach((button) => button.addEventListener("click", () => { promptInput.value = button.dataset.prompt; promptInput.focus(); }));
-$("#attachButton").addEventListener("click", () => $("#fileInput").click()); $("#fileInput").addEventListener("change", (event) => { pendingFiles = [...event.target.files]; $("#attachmentLabel").textContent = `${pendingFiles.length} arquivo(s) pronto(s) para leitura`; });
-$("#githubButton").addEventListener("click", async () => { const repository = prompt("Repositório (usuario/repositorio):"); const token = prompt("Token GitHub (usado somente nesta sessão):"); if (!repository || !token) return; try { const response = await fetch("/api/integrations/github", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository, token }) }); if (!response.ok) throw new Error(await response.text()); const data = await response.json(); $("#githubLabel").textContent = `${data.repository} conectado`; showToast("GitHub conectado sem salvar o token"); } catch (error) { showToast(`GitHub: ${error.message}`); } });
-$("#vaultButton").addEventListener("click", async () => { const path = prompt("Caminho da pasta do Obsidian:"); if (!path) return; try { const response = await fetch(`/api/obsidian/scan?path=${encodeURIComponent(path)}`); if (!response.ok) throw new Error(await response.text()); const data = await response.json(); $("#vaultLabel").textContent = `${data.notes.length} notas indexadas`; showToast("Vault Obsidian conectado"); } catch (error) { showToast(`Obsidian: ${error.message}`); } }); $("#scanVaultButton").addEventListener("click", () => $("#vaultButton").click());
+$("#attachButton").addEventListener("click", () => $("#fileInput").click()); $("#fileInput").addEventListener("change", (event) => { pendingFiles = [...event.target.files]; $("#attachmentLabel").textContent = `${pendingFiles.length} file(s) ready for context`; });
+let recorder;
+$("#voiceButton").addEventListener("click", async () => {
+  if (recorder?.state === "recording") { recorder.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { showToast("Voice recording is not supported by this browser"); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recorder = new MediaRecorder(stream); const chunks = [];
+    recorder.ondataavailable = (event) => chunks.push(event.data);
+    recorder.onstop = async () => { stream.getTracks().forEach((track) => track.stop()); $("#voiceButton").textContent = "●"; $("#attachmentLabel").textContent = "Transcribing locally..."; try { const response = await fetch("/api/transcribe", { method: "POST", headers: { "Content-Type": recorder.mimeType || "audio/webm", "X-Voice-Language": "auto" }, body: new Blob(chunks, { type: recorder.mimeType || "audio/webm" }) }); if (!response.ok) throw new Error(await response.text()); const data = await response.json(); promptInput.value = `${promptInput.value}${promptInput.value ? " " : ""}${data.text}`; promptInput.focus(); $("#attachmentLabel").textContent = `Detected ${data.language || "speech"}`; } catch (error) { showToast(`Voice input: ${error.message}`); $("#attachmentLabel").textContent = "Compact context active"; } };
+    recorder.start(); $("#voiceButton").textContent = "■"; $("#attachmentLabel").textContent = "Recording... click to stop";
+  } catch (error) { showToast(`Microphone: ${error.message}`); }
+});
+$("#speakButton").addEventListener("click", async () => { const latest = [...activeThread().messages].reverse().find((message) => message.role === "assistant"); if (!latest) { showToast("There is no answer to read yet"); return; } try { const response = await fetch("/api/speak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: latest.content, language: /[ãõçáéíóú]/i.test(latest.content) ? "pt_BR" : "en_US" }) }); if (!response.ok) throw new Error(await response.text()); const audio = new Audio(URL.createObjectURL(await response.blob())); await audio.play(); } catch (error) { showToast(`Voice output: ${error.message}`); } });
+$("#githubButton").addEventListener("click", async () => { const repository = prompt("Repository (user/repository):"); const token = prompt("GitHub token (session only):"); if (!repository || !token) return; try { const response = await fetch("/api/integrations/github", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ repository, token }) }); if (!response.ok) throw new Error(await response.text()); const data = await response.json(); $("#githubLabel").textContent = `${data.repository} connected`; showToast("GitHub connected without saving the token"); } catch (error) { showToast(`GitHub: ${error.message}`); } });
+$("#vaultButton").addEventListener("click", async () => { const path = prompt("Obsidian vault folder path:"); if (!path) return; try { const response = await fetch(`/api/obsidian/scan?path=${encodeURIComponent(path)}`); if (!response.ok) throw new Error(await response.text()); const data = await response.json(); $("#vaultLabel").textContent = `${data.notes.length} notes indexed`; showToast("Obsidian vault connected"); } catch (error) { showToast(`Obsidian: ${error.message}`); } }); $("#scanVaultButton").addEventListener("click", () => $("#vaultButton").click());
 boot();

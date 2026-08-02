@@ -69,6 +69,26 @@ http://localhost:4173/frontend/
 
 O frontend usa `/api/chat` no mesmo servidor para evitar bloqueio de CORS do navegador.
 
+## Desktop app and local voice
+
+The Windows executable is built as `MegaBrain.exe`. The desktop launcher starts the local server and opens the frontend automatically.
+
+Voice input uses Faster-Whisper locally with automatic language detection, including English and Brazilian Portuguese. Voice output uses Piper locally. Audio is processed by these endpoints and is never added to the LLM context; only the resulting transcript is sent to the model.
+
+Install speech-to-text support:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\voice_setup.ps1
+```
+
+Download Piper and one `en_US` voice plus one `pt_BR` voice from the Piper voice sources. Configure:
+
+```powershell
+$env:MEGA_BRAIN_PIPER_EN_VOICE="C:\path\to\en_US_voice.onnx"
+$env:MEGA_BRAIN_PIPER_PT_VOICE="C:\path\to\pt_BR_voice.onnx"
+python .\mega_brain_launcher.py
+```
+
 ## Erro de grammar no LM Studio
 
 O erro abaixo normalmente acontece quando algum cliente envia uma gramatica, JSON schema ou resposta estruturada em formato que o motor do modelo nao consegue interpretar:

@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlparse
@@ -25,16 +26,21 @@ TEXT_EXTENSIONS = {
     ".css", ".html", ".js", ".jsx", ".json", ".md", ".py", ".sql", ".ts", ".tsx", ".txt", ".yml", ".yaml", ".csv", ".tsv", ".xml"
 }
 MODEL_PROFILES = [
-    {"id": "auto", "label": "Auto", "description": "Escolhe o modelo pelo tipo de tarefa", "window": DEFAULT_CONTEXT_WINDOW},
-    {"id": "qwen2.5-coder-14b-instruct", "label": "Qwen Coder 14B", "description": "Implementacao e debugging", "window": 8192},
-    {"id": "qwen2.5-coder-7b-instruct", "label": "Qwen Coder 7B", "description": "Tarefas rapidas e leitura", "window": 8192},
+    {"id": "auto", "label": "Auto", "description": "Selects a model by task", "window": DEFAULT_CONTEXT_WINDOW},
+    {"id": "qwen2.5-coder-14b-instruct", "label": "Qwen Coder 14B", "description": "Implementation and debugging", "window": 8192},
+    {"id": "qwen2.5-coder-7b-instruct", "label": "Qwen Coder 7B", "description": "Fast tasks and reading", "window": 8192},
 ]
+WHISPER_MODEL = os.environ.get("MEGA_BRAIN_WHISPER_MODEL", "small")
+PIPER_BINARY = os.environ.get("MEGA_BRAIN_PIPER_BINARY", "piper")
+PIPER_EN_VOICE = os.environ.get("MEGA_BRAIN_PIPER_EN_VOICE", "")
+PIPER_PT_VOICE = os.environ.get("MEGA_BRAIN_PIPER_PT_VOICE", "")
+_whisper = None
 SKILLS = [
-    {"id": "engineering-core", "name": "Engineering Core", "category": "Arquitetura", "description": "Plano curto, mudanca pequena, verificacao e evidencia.", "source": "local"},
-    {"id": "systematic-debugging", "name": "Systematic Debugging", "category": "Debugging", "description": "Reproduzir, isolar causa, corrigir e testar.", "source": "addyosmani/agent-skills"},
-    {"id": "test-first", "name": "Test First", "category": "Testes", "description": "Escolher o teste minimo que prova o comportamento.", "source": "LambdaTest/agent-skills"},
-    {"id": "data-pipelines", "name": "Data Pipelines", "category": "Dados", "description": "CSV, JSON, YAML, SQL e pipelines Python com validacao.", "source": "local"},
-    {"id": "git-review", "name": "Git Review", "category": "Git", "description": "Diff pequeno, historico claro e revisao antes de publicar.", "source": "local"},
+    {"id": "engineering-core", "name": "Engineering Core", "category": "Architecture", "description": "Short plan, small change, verification, and evidence.", "source": "local"},
+    {"id": "systematic-debugging", "name": "Systematic Debugging", "category": "Debugging", "description": "Reproduce, isolate, patch, and test.", "source": "addyosmani/agent-skills"},
+    {"id": "test-first", "name": "Test First", "category": "Testing", "description": "Choose the smallest test that proves the behavior.", "source": "LambdaTest/agent-skills"},
+    {"id": "data-pipelines", "name": "Data Pipelines", "category": "Data", "description": "CSV, JSON, YAML, SQL, and validated Python pipelines.", "source": "local"},
+    {"id": "git-review", "name": "Git Review", "category": "Git", "description": "Focused diff, clear history, and review before publishing.", "source": "local"},
 ]
 
 
@@ -43,7 +49,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_POST(self):
-        if self.path not in {"/api/chat", "/api/workspace/write", "/api/integrations/github"}:
+        if self.path not in {"/api/chat", "/api/workspace/write", "/api/integrations/github", "/api/transcribe", "/api/speak"}:
             self.send_error(404, "Not found")
             return
 
@@ -51,6 +57,12 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         body = self.rfile.read(length)
 
         try:
+            if self.path == "/api/transcribe":
+                self.send_json(200, self.transcribe_audio(body))
+                return
+            if self.path == "/api/speak":
+                self.send_audio(200, self.speak_text(json.loads(body.decode("utf-8"))))
+                return
             payload = json.loads(body.decode("utf-8"))
             if self.path == "/api/workspace/write":
                 response = self.write_workspace_file(payload)
@@ -138,7 +150,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         if suffix in TEXT_EXTENSIONS:
             result["content"] = target.read_text(encoding="utf-8", errors="replace")[:6000]
         elif suffix == ".pdf":
-            result["content"] = "PDF detectado. Use uma ferramenta PDF local para extrair texto sob demanda."
+            result["content"] = "PDF detected. Use a local PDF tool to extract text on demand."
         elif suffix in {".xlsx", ".xls", ".parquet", ".db", ".sqlite"}:
             result["content"] = "Formato estruturado detectado. O agente deve inspecionar apenas metadados e amostras sob demanda."
         return result
@@ -170,10 +182,10 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
     def write_workspace_file(self, payload):
         relative = str(payload.get("path", "")).replace("\\", "/").strip("/")
         if not relative or relative.startswith("../") or "/../" in f"/{relative}":
-            raise ValueError("Caminho de arquivo invalido")
+            raise ValueError("Invalid file path")
         target = (ROOT / relative).resolve()
         if ROOT not in target.parents and target != ROOT:
-            raise ValueError("O arquivo precisa estar dentro do workspace")
+            raise ValueError("The file must be inside the workspace")
         content = payload.get("content", "")
         if not isinstance(content, str):
             content = str(content)
@@ -199,7 +211,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 check=False,
             )
             if result.returncode:
-                raise OSError(result.stderr.strip() or "Falha ao gravar arquivo")
+                raise OSError(result.stderr.strip() or "Failed to write file")
         else:
             target.write_text(content, encoding="utf-8")
         return {"ok": True, "path": relative}
@@ -247,6 +259,57 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def transcribe_audio(self, body):
+        global _whisper
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as error:
+            raise RuntimeError("Voice input is not installed. Run voice_setup.ps1 first.") from error
+        if not body:
+            raise ValueError("No audio received")
+        if _whisper is None:
+            device = os.environ.get("MEGA_BRAIN_WHISPER_DEVICE", "cuda")
+            compute_type = os.environ.get("MEGA_BRAIN_WHISPER_COMPUTE", "float16" if device == "cuda" else "int8")
+            _whisper = WhisperModel(WHISPER_MODEL, device=device, compute_type=compute_type)
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as audio_file:
+            audio_file.write(body)
+            audio_path = audio_file.name
+        try:
+            segments, info = _whisper.transcribe(audio_path, language=None, vad_filter=True, beam_size=5)
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+            return {"text": text, "language": info.language, "duration": info.duration}
+        finally:
+            try:
+                os.unlink(audio_path)
+            except OSError:
+                pass
+
+    def speak_text(self, payload):
+        text = str(payload.get("text", "")).strip()
+        language = str(payload.get("language", "en_US"))
+        voice = PIPER_PT_VOICE if language.startswith("pt") else PIPER_EN_VOICE
+        if not text or not voice:
+            raise RuntimeError("Configure MEGA_BRAIN_PIPER_EN_VOICE and MEGA_BRAIN_PIPER_PT_VOICE first.")
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_file:
+            output_path = output_file.name
+        try:
+            result = subprocess.run([PIPER_BINARY, "--model", voice, "--output_file", output_path], input=text, text=True, capture_output=True, check=False)
+            if result.returncode:
+                raise RuntimeError(result.stderr.strip() or "Piper failed to synthesize audio")
+            return Path(output_path).read_bytes()
+        finally:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
+
+    def send_audio(self, status, data):
+        self.send_response(status)
+        self.send_header("Content-Type", "audio/wav")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
