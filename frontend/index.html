@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mega Brain</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">MB</div>
+          <div>
+            <strong>Mega Brain</strong>
+            <span>Local workspace</span>
+          </div>
+        </div>
+
+        <button class="new-chat" id="newChatButton">+ Nova conversa</button>
+
+        <nav class="thread-list" aria-label="Conversas">
+          <button class="thread active">Sessao atual</button>
+          <button class="thread">Ideias</button>
+          <button class="thread">Codigo</button>
+        </nav>
+
+        <section class="settings">
+          <label>
+            Endpoint
+            <input id="baseUrlInput" value="http://localhost:1234/v1" />
+          </label>
+          <label>
+            Modelo
+            <input id="modelInput" value="local-model" />
+          </label>
+          <label>
+            Temperatura
+            <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.7" />
+          </label>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>Mega Brain</h1>
+            <p>Chat local via LM Studio, sem grammar ou schema por padrao.</p>
+          </div>
+          <div class="status" id="status">Pronto</div>
+        </header>
+
+        <section class="messages" id="messages" aria-live="polite">
+          <article class="message assistant">
+            <div class="avatar">MB</div>
+            <div class="bubble">
+              Abra o servidor local do LM Studio e envie uma mensagem. Eu vou chamar
+              <code>/chat/completions</code> diretamente.
+            </div>
+          </article>
+        </section>
+
+        <form class="composer" id="composer">
+          <textarea id="promptInput" rows="1" placeholder="Digite sua mensagem..."></textarea>
+          <button id="sendButton" type="submit">Enviar</button>
+        </form>
+      </main>
+    </div>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
