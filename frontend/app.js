@@ -125,14 +125,22 @@ function updateContextMeter(used, window) {
   $("#contextRing").style.setProperty("--percent", `${percent * 3.6}deg`);
 }
 function compactMessages() { return activeThread().messages.slice(-state.settings.contextLimit); }
-function cleanAnswer(answer) { return answer.replace(/<mega-write\s+path="[^"]+">[\s\S]*?<\/mega-write>/g, "").trim(); }
+function cleanAnswer(answer) { return answer.replace(/<mega-write\s+path="[^"]+">[\s\S]*?<\/mega-write>/g, "").replace(/<mega-edit\s+path="[^"]+">[\s\S]*?<\/mega-edit>/g, "").trim(); }
 async function applyAgentWrites(answer) {
   const writes = [...answer.matchAll(/<mega-write\s+path="([^"]+)">([\s\S]*?)<\/mega-write>/g)];
+  const edits = [...answer.matchAll(/<mega-edit\s+path="([^"]+)">\s*SEARCH:\s*\n([\s\S]*?)\nREPLACE:\s*\n([\s\S]*?)<\/mega-edit>/g)];
   const saved = [];
   for (const [, path, content] of writes) {
     const response = await fetch("/api/workspace/write", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content, workspaceRoot: activeProject().path || "" }) });
     if (!response.ok) throw new Error(`Failed to save ${path}: ${await response.text()}`);
-    saved.push(path);
+    const result = await response.json();
+    saved.push({ path, validation: result.validation?.message || "File written" });
+  }
+  for (const [, path, search, replace] of edits) {
+    const response = await fetch("/api/workspace/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, search, replace, workspaceRoot: activeProject().path || "" }) });
+    if (!response.ok) throw new Error(`Failed to edit ${path}: ${await response.text()}`);
+    const result = await response.json();
+    saved.push({ path, validation: result.validation?.message || "Exact edit applied" });
   }
   return saved;
 }
@@ -147,7 +155,8 @@ async function requestCompletion() {
   const answer = data.choices?.[0]?.message?.content?.trim() || "No content returned.";
   const saved = await applyAgentWrites(answer);
   if (data.mega) updateContextMeter(data.mega.estimatedTokens, data.mega.contextWindow);
-  return `${cleanAnswer(answer)}${saved.length ? `\n\nFiles saved: ${saved.join(", ")}` : ""}`.trim();
+  const verification = saved.map((item) => `${item.path}: ${item.validation}`).join("; ");
+  return `${cleanAnswer(answer)}${saved.length ? `\n\nFiles saved: ${verification}` : ""}`.trim();
 }
 async function sendPrompt() {
   const prompt = promptInput.value.trim();

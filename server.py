@@ -3,6 +3,7 @@ import csv
 import hashlib
 import os
 import re
+import ast
 import subprocess
 import tempfile
 import shutil
@@ -49,6 +50,25 @@ SKILLS = [
     {"id": "data-pipelines", "name": "Data Pipelines", "category": "Data", "description": "CSV, JSON, YAML, SQL, and validated Python pipelines.", "source": "local"},
     {"id": "git-review", "name": "Git Review", "category": "Git", "description": "Focused diff, clear history, and review before publishing.", "source": "local"},
 ]
+MUTATION_TERMS = {
+    "fix", "change", "create", "implement", "modify", "update", "add", "remove", "refactor", "improve",
+    "corrija", "altere", "crie", "implemente", "modifique", "atualize", "adicione", "remova", "refatore", "melhore", "faca", "faça",
+}
+AGENT_EXECUTION_CONTRACT = """
+NON-NEGOTIABLE AGENT CONTRACT:
+You are an autonomous coding agent with workspace access through <mega-write> blocks.
+When the user requests a code or file change, you MUST perform the change now. Do not give a tutorial, suggestions, partial snippets, or claim you cannot access files.
+For an existing file, prefer a small exact edit using:
+<mega-edit path=\"relative/path.ext\">
+SEARCH:
+exact existing text
+REPLACE:
+replacement text
+</mega-edit>
+Use <mega-write path=\"relative/path.ext\">full file content</mega-write> only for new or short files.
+For a requested change, a response without at least one mega-edit or mega-write block is invalid.
+Use only files supplied in workspace context or create a clearly necessary new relative file. After write blocks, state the verification performed in at most three short lines.
+""".strip()
 
 
 class MegaBrainHandler(SimpleHTTPRequestHandler):
@@ -56,7 +76,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_POST(self):
-        if self.path not in {"/api/chat", "/api/projects", "/api/workspace/write", "/api/integrations/github", "/api/transcribe", "/api/speak"}:
+        if self.path not in {"/api/chat", "/api/projects", "/api/workspace/write", "/api/workspace/edit", "/api/integrations/github", "/api/transcribe", "/api/speak"}:
             self.send_error(404, "Not found")
             return
 
@@ -68,13 +88,15 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 self.send_json(200, self.transcribe_audio(body))
                 return
             if self.path == "/api/speak":
-                self.send_audio(200, self.speak_text(json.loads(body.decode("utf-8"))))
+                self.send_audio(200, self.speak_text(json.loads(body.decode("utf-8", errors="replace"))))
                 return
-            payload = json.loads(body.decode("utf-8"))
+            payload = json.loads(body.decode("utf-8", errors="replace"))
             if self.path == "/api/projects":
                 response = self.create_project(payload)
             elif self.path == "/api/workspace/write":
                 response = self.write_workspace_file(payload)
+            elif self.path == "/api/workspace/edit":
+                response = self.edit_workspace_file(payload)
             elif self.path == "/api/integrations/github":
                 response = self.connect_github(payload)
             else:
@@ -138,6 +160,15 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
             if path.suffix.lower() not in TEXT_EXTENSIONS:
                 continue
             score = sum(1 for word in words if word in relative.lower())
+            lowered = relative.lower()
+            if words & {"frontend", "front-end", "css", "html", "ui", "interface", "visual", "layout"} and lowered.startswith("frontend/"):
+                score += 12
+            if words & {"backend", "server", "api", "python", "endpoint"} and relative.endswith("server.py"):
+                score += 12
+            if words & {"test", "tests", "testing", "teste", "testes"} and ("test" in lowered or relative.endswith("package.json")):
+                score += 10
+            if words & {"sql", "database", "banco", "dados", "data"} and path.suffix.lower() in {".sql", ".py", ".csv", ".json", ".yaml", ".yml"}:
+                score += 8
             if relative in {"agent_prompt.txt", "README.md"}:
                 score += 1
             candidates.append((score, relative))
@@ -259,6 +290,9 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         content = payload.get("content", "")
         if not isinstance(content, str):
             content = str(content)
+        validation = self.validate_file_content(target, content)
+        if not validation["ok"]:
+            raise ValueError(validation["message"])
         target.parent.mkdir(parents=True, exist_ok=True)
         if os.name == "nt":
             command = (
@@ -284,7 +318,68 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 raise OSError(result.stderr.strip() or "Failed to write file")
         else:
             target.write_text(content, encoding="utf-8")
-        return {"ok": True, "path": relative, "workspaceRoot": str(workspace_root)}
+        return {"ok": True, "path": relative, "workspaceRoot": str(workspace_root), "validation": validation}
+
+    def edit_workspace_file(self, payload):
+        relative = str(payload.get("path", "")).replace("\\", "/").strip("/")
+        search = str(payload.get("search", ""))
+        replacement = str(payload.get("replace", ""))
+        if not relative or not search:
+            raise ValueError("Edit path and SEARCH text are required")
+        if relative.startswith("../") or "/../" in f"/{relative}":
+            raise ValueError("Invalid file path")
+        workspace_root = self.resolve_workspace_root(payload.get("workspaceRoot", ""))
+        target = (workspace_root / relative).resolve()
+        if workspace_root not in target.parents or not target.is_file():
+            raise ValueError("The edit target must be an existing file in the active project")
+        content = target.read_text(encoding="utf-8", errors="replace")
+        occurrences = content.count(search)
+        if occurrences == 1:
+            updated = content.replace(search, replacement, 1)
+        elif target.suffix.lower() == ".css":
+            updated = self.replace_css_rule(content, search, replacement)
+        else:
+            raise ValueError(f"SEARCH text must match exactly once in {relative}; found {occurrences} matches")
+        validation = self.validate_file_content(target, updated)
+        if not validation["ok"]:
+            raise ValueError(validation["message"])
+        target.write_text(updated, encoding="utf-8")
+        return {"ok": True, "path": relative, "workspaceRoot": str(workspace_root), "validation": validation}
+
+    def replace_css_rule(self, content, search, replacement):
+        selector = search.strip().rstrip("{").strip()
+        if not selector or "{" not in replacement:
+            raise ValueError("CSS SEARCH text must match exactly once")
+        match = re.search(rf"{re.escape(selector)}\s*\{{", content)
+        if not match or len(re.findall(rf"{re.escape(selector)}\s*\{{", content)) != 1:
+            raise ValueError(f"CSS selector {selector!r} must match exactly once")
+        depth = 0
+        end = None
+        for index in range(match.end() - 1, len(content)):
+            if content[index] == "{":
+                depth += 1
+            elif content[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = index + 1
+                    break
+        if end is None:
+            raise ValueError(f"CSS rule {selector!r} is not balanced")
+        return f"{content[:match.start()]}{replacement.strip()}{content[end:]}"
+
+    def validate_file_content(self, target, content):
+        suffix = target.suffix.lower()
+        try:
+            if suffix == ".py":
+                ast.parse(content)
+            elif suffix == ".json":
+                json.loads(content)
+            elif suffix == ".css" and content.count("{") != content.count("}"):
+                raise SyntaxError("unbalanced CSS braces")
+        except (SyntaxError, json.JSONDecodeError) as error:
+            return {"ok": False, "message": f"Validation failed for {target.name}: {error}"}
+        check = "Python syntax parsed" if suffix == ".py" else "JSON parsed" if suffix == ".json" else "File written"
+        return {"ok": True, "message": check}
 
     def forward_to_lm_studio(self, payload):
         base_url = payload.pop("baseUrl", BASE_URL).rstrip("/")
@@ -295,24 +390,45 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
             selected_model = self.route_model(task_mode, payload.get("messages", []))
             payload["model"] = selected_model
         if payload.get("messages"):
+            system_message = next((message for message in payload["messages"] if message.get("role") == "system"), None)
+            if system_message:
+                system_message["content"] = f"{system_message.get('content', '')}\n\n{AGENT_EXECUTION_CONTRACT}"
             last = payload["messages"][-1]
             if last.get("role") == "user":
                 last["content"] += self.workspace_context(last.get("content", ""), workspace_root)
+        payload.setdefault("max_tokens", int(os.environ.get("MEGA_BRAIN_MAX_OUTPUT_TOKENS", "4096")))
+        result = self.request_completion(base_url, payload)
+        if self.requires_write(payload.get("messages", [])) and not self.has_agent_change(result):
+            result = self.repair_non_agent_response(base_url, payload, result)
+        result["mega"] = self.usage_metadata(payload, task_mode, selected_model)
+        return result
 
+    def request_completion(self, base_url, payload):
         request = urllib.request.Request(
             f"{base_url}/chat/completions",
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": "Bearer lm-studio",
-            },
+            headers={"Content-Type": "application/json", "Authorization": "Bearer lm-studio"},
             method="POST",
         )
-
         with urllib.request.urlopen(request, timeout=120) as response:
-            result = json.loads(response.read().decode("utf-8"))
-        result["mega"] = self.usage_metadata(payload, task_mode, selected_model)
-        return result
+            return json.loads(response.read().decode("utf-8", errors="replace"))
+
+    def requires_write(self, messages):
+        user_content = " ".join(str(item.get("content", "")) for item in messages if item.get("role") == "user").lower()
+        return any(re.search(rf"\b{re.escape(term)}\b", user_content) for term in MUTATION_TERMS)
+
+    def has_agent_change(self, result):
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return bool(re.search(r"<mega-(?:write|edit)\s+path=\"[^\"]+\">[\s\S]+?</mega-(?:write|edit)>", content))
+
+    def repair_non_agent_response(self, base_url, payload, prior_result):
+        prior_answer = prior_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        repair_payload = json.loads(json.dumps(payload))
+        repair_payload["messages"].append({
+            "role": "user",
+            "content": f"The previous answer below was rejected because it did not modify files. Execute the original request now. For existing files return exact <mega-edit> SEARCH/REPLACE blocks. Use <mega-write> only for a new or short file. Do not provide advice.\n\nRejected answer:\n{prior_answer}",
+        })
+        return self.request_completion(base_url, repair_payload)
 
     def route_model(self, task_mode, messages):
         loaded = self.lm_status()["loadedModelIds"]
