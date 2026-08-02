@@ -20,9 +20,10 @@
         <button class="new-chat" id="newChatButton">+ Nova conversa</button>
 
         <nav class="thread-list" aria-label="Conversas">
-          <button class="thread active">Sessao atual</button>
-          <button class="thread">Ideias</button>
-          <button class="thread">Codigo</button>
+          <button class="thread active">Agente de codigo</button>
+          <button class="thread">Front end</button>
+          <button class="thread">Back end</button>
+          <button class="thread">SQL e dados</button>
         </nav>
 
         <section class="settings">
@@ -38,6 +39,14 @@
             Temperatura
             <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.7" />
           </label>
+          <label>
+            Historico enviado
+            <input id="contextLimitInput" type="number" min="2" max="20" step="1" value="8" />
+          </label>
+          <label>
+            Prompt do agente
+            <textarea id="systemPromptInput" rows="7"></textarea>
+          </label>
         </section>
       </aside>
 
@@ -45,7 +54,7 @@
         <header class="topbar">
           <div>
             <h1>Mega Brain</h1>
-            <p>Chat local via LM Studio, sem grammar ou schema por padrao.</p>
+            <p>Agente local para codigo com contexto compacto via LM Studio e Qwen.</p>
           </div>
           <div class="status" id="status">Pronto</div>
         </header>
@@ -54,8 +63,9 @@
           <article class="message assistant">
             <div class="avatar">MB</div>
             <div class="bubble">
-              Abra o servidor local do LM Studio e envie uma mensagem. Eu vou chamar
-              <code>/chat/completions</code> diretamente.
+              Estou configurado como agente de codigo para front end, back end,
+              SQL, Python e pipelines de dados. Envie uma tarefa tecnica ou cole
+              um trecho de arquivo relevante.
             </div>
           </article>
         </section>

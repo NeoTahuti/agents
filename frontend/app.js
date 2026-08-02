@@ -7,13 +7,32 @@ const baseUrlInput = document.querySelector("#baseUrlInput");
 const modelInput = document.querySelector("#modelInput");
 const temperatureInput = document.querySelector("#temperatureInput");
 const newChatButton = document.querySelector("#newChatButton");
+const contextLimitInput = document.querySelector("#contextLimitInput");
+const systemPromptInput = document.querySelector("#systemPromptInput");
 
-const messages = [
-  {
+let defaultSystemPrompt = "";
+const messages = [];
+
+async function loadSystemPrompt() {
+  const response = await fetch("/agent_prompt.txt");
+  defaultSystemPrompt = response.ok
+    ? await response.text()
+    : "Voce e o Mega Brain, agente local de engenharia de software para devs.";
+  systemPromptInput.value = defaultSystemPrompt.trim();
+  resetConversation();
+}
+
+function resetConversation() {
+  messages.splice(0, messages.length, {
     role: "system",
-    content: "Voce e o Mega Brain, um assistente local direto, claro e pratico.",
-  },
-];
+    content: systemPromptInput.value.trim() || defaultSystemPrompt,
+  });
+}
+
+function compactMessagesForRequest() {
+  const limit = Number(contextLimitInput.value || 8);
+  return [messages[0], ...messages.slice(1).slice(-limit)];
+}
 
 function addMessage(role, content) {
   const article = document.createElement("article");
@@ -46,7 +65,7 @@ async function requestCompletion() {
     },
     body: JSON.stringify({
       model: modelInput.value.trim() || "local-model",
-      messages,
+      messages: compactMessagesForRequest(),
       temperature: Number(temperatureInput.value || 0.7),
       stream: false,
       baseUrl: baseUrlInput.value.replace(/\/+$/, ""),
@@ -95,11 +114,15 @@ promptInput.addEventListener("input", () => {
 });
 
 newChatButton.addEventListener("click", () => {
-  messages.splice(1);
+  resetConversation();
   messagesEl.replaceChildren();
   addMessage(
     "assistant",
-    "Nova conversa iniciada. O contexto anterior foi limpo nesta interface."
+    "Nova conversa iniciada. Estou em modo agente de codigo com historico compacto para economizar contexto."
   );
   promptInput.focus();
 });
+
+systemPromptInput.addEventListener("change", resetConversation);
+
+loadSystemPrompt();

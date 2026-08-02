@@ -122,7 +122,8 @@ textarea {
   font-size: 13px;
 }
 
-.settings input {
+.settings input,
+.settings textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -131,8 +132,15 @@ textarea {
   color: var(--text);
 }
 
-.settings input:disabled {
+.settings input:disabled,
+.settings textarea:disabled {
   opacity: 0.82;
+}
+
+.settings textarea {
+  min-height: 132px;
+  resize: vertical;
+  line-height: 1.45;
 }
 
 .workspace {

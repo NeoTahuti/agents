@@ -71,3 +71,13 @@ python .\cli\mega_brain.py "Responda apenas: ok"
 Este projeto ja envia requisicoes simples por padrao e nao manda grammar para o LM Studio.
 
 Se o CLI funcionar e o frontend antigo mostrar `Failed to fetch`, o problema era CORS. Use `python .\server.py`, nao `python -m http.server`.
+
+## Perfil de agente e contexto
+
+O comportamento principal fica em:
+
+```text
+agent_prompt.txt
+```
+
+Ele e curto de proposito para economizar VRAM/contexto. O frontend tambem envia apenas as ultimas mensagens configuradas em `Historico enviado`, mantendo o sistema mais leve para modelos locais como Qwen.

@@ -3,14 +3,14 @@ import os
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 
 BASE_URL = os.environ.get("MEGA_BRAIN_BASE_URL", "http://localhost:1234/v1").rstrip("/")
 MODEL = os.environ.get("MEGA_BRAIN_MODEL", "local-model")
-SYSTEM_PROMPT = os.environ.get(
-    "MEGA_BRAIN_SYSTEM",
-    "Voce e o Mega Brain, um assistente local direto, claro e pratico.",
-)
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SYSTEM_PROMPT = (ROOT / "agent_prompt.txt").read_text(encoding="utf-8")
+SYSTEM_PROMPT = os.environ.get("MEGA_BRAIN_SYSTEM", DEFAULT_SYSTEM_PROMPT)
 
 
 def chat(messages):
