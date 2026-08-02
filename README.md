@@ -84,6 +84,14 @@ Ele e curto de proposito para economizar VRAM/contexto. O servidor injeta a list
 
 Quando a tarefa pede uma alteracao, o agente pode retornar blocos no formato `mega-write`. O frontend e o CLI salvam esses blocos somente em caminhos relativos dentro deste workspace. Assim o Qwen consegue trabalhar como agente de codigo sem precisar de function calling, grammar ou structured output.
 
+Inicie o servidor em um terminal normal do Windows, dentro da pasta do projeto:
+
+```powershell
+python .\server.py
+```
+
+O terminal precisa ter permissao de escrita na pasta do projeto; sem isso o agente ainda consegue analisar e responder, mas nao consegue persistir alteracoes.
+
 Exemplos de pedidos:
 
 ```text

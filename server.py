@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -91,11 +92,34 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         target = (ROOT / relative).resolve()
         if ROOT not in target.parents and target != ROOT:
             raise ValueError("O arquivo precisa estar dentro do workspace")
-        content = payload.get("content")
+        content = payload.get("content", "")
         if not isinstance(content, str):
-            raise ValueError("content precisa ser texto")
+            content = str(content)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        if os.name == "nt":
+            command = (
+                "$content = [Console]::In.ReadToEnd(); "
+                "$encoding = New-Object System.Text.UTF8Encoding($false); "
+                "[System.IO.File]::WriteAllText($env:MEGA_BRAIN_TARGET, $content, $encoding)"
+            )
+            child_env = os.environ.copy()
+            child_env["MEGA_BRAIN_TARGET"] = str(target)
+            powershell = os.environ.get(
+                "MEGA_BRAIN_POWERSHELL",
+                r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            )
+            result = subprocess.run(
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", command],
+                input=content,
+                text=True,
+                capture_output=True,
+                env=child_env,
+                check=False,
+            )
+            if result.returncode:
+                raise OSError(result.stderr.strip() or "Falha ao gravar arquivo")
+        else:
+            target.write_text(content, encoding="utf-8")
         return {"ok": True, "path": relative}
 
     def forward_to_lm_studio(self, payload):

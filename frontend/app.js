@@ -80,13 +80,20 @@ async function requestCompletion() {
 
   const data = JSON.parse(text);
   const answer = data.choices?.[0]?.message?.content?.trim() || "Sem conteudo na resposta.";
-  await applyAgentWrites(answer);
-  return answer;
+  const savedPaths = await applyAgentWrites(answer);
+  const visibleAnswer = answer.replace(/<mega-write\s+path="[^"]+">[\s\S]*?<\/mega-write>/g, "").trim();
+  if (savedPaths.length) {
+    statusEl.textContent = `${savedPaths.length} arquivo(s) salvo(s)`;
+  }
+  return [visibleAnswer, savedPaths.length ? `\n\nArquivos salvos: ${savedPaths.join(", ")}` : ""]
+    .join("")
+    .trim() || "Alteracao concluida.";
 }
 
 async function applyAgentWrites(answer) {
   const writePattern = /<mega-write\s+path="([^"]+)">([\s\S]*?)<\/mega-write>/g;
   const writes = [...answer.matchAll(writePattern)];
+  const savedPaths = [];
   for (const [, path, content] of writes) {
     const response = await fetch("/api/workspace/write", {
       method: "POST",
@@ -94,10 +101,9 @@ async function applyAgentWrites(answer) {
       body: JSON.stringify({ path, content }),
     });
     if (!response.ok) throw new Error(`Falha ao salvar ${path}: ${await response.text()}`);
+    savedPaths.push(path);
   }
-  if (writes.length) {
-    statusEl.textContent = `${writes.length} arquivo(s) salvo(s)`;
-  }
+  return savedPaths;
 }
 
 composer.addEventListener("submit", async (event) => {
@@ -129,6 +135,12 @@ composer.addEventListener("submit", async (event) => {
 promptInput.addEventListener("input", () => {
   promptInput.style.height = "auto";
   promptInput.style.height = `${promptInput.scrollHeight}px`;
+});
+
+promptInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  if (!sendButton.disabled) composer.requestSubmit();
 });
 
 newChatButton.addEventListener("click", () => {
