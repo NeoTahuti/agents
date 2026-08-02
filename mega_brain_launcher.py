@@ -9,10 +9,11 @@ from pathlib import Path
 
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-PORT = os.environ.get("MEGA_BRAIN_PORT", "4176")
+PORT = os.environ.get("MEGA_BRAIN_PORT", "4180")
 
 
 def main():
+    os.environ.setdefault("MEGA_BRAIN_PORT", PORT)
     server_thread = threading.Thread(target=runpy.run_path, args=(str(ROOT / "server.py"),), kwargs={"run_name": "__main__"}, daemon=True)
     server_thread.start()
     time.sleep(1)
