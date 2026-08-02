@@ -19,7 +19,11 @@ BASE_URL = os.environ.get("MEGA_BRAIN_BASE_URL", "http://localhost:1234/v1").rst
 PORT = int(os.environ.get("MEGA_BRAIN_PORT", "4173"))
 MAX_CONTEXT_CHARS = int(os.environ.get("MEGA_BRAIN_MAX_CONTEXT", "18000"))
 DEFAULT_CONTEXT_WINDOW = int(os.environ.get("MEGA_BRAIN_CONTEXT_WINDOW", "8192"))
-ALLOWED_ROOTS = [ROOT]
+PROJECTS_DIR = Path(os.environ.get("MEGA_BRAIN_PROJECTS_DIR", r"C:\mega_brain_agent\projects")).expanduser().resolve()
+DEFAULT_OBSIDIAN_PATH = Path(os.environ.get("MEGA_BRAIN_OBSIDIAN_VAULT", r"C:\mega_brain_agent\mega_brain_vault")).expanduser().resolve()
+ALLOWED_ROOTS = [ROOT, PROJECTS_DIR]
+if DEFAULT_OBSIDIAN_PATH.exists():
+    ALLOWED_ROOTS.append(DEFAULT_OBSIDIAN_PATH)
 for configured_root in os.environ.get("MEGA_BRAIN_ALLOWED_ROOTS", "").split(os.pathsep):
     if configured_root.strip():
         ALLOWED_ROOTS.append(Path(configured_root).expanduser().resolve())
@@ -52,7 +56,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def do_POST(self):
-        if self.path not in {"/api/chat", "/api/workspace/write", "/api/integrations/github", "/api/transcribe", "/api/speak"}:
+        if self.path not in {"/api/chat", "/api/projects", "/api/workspace/write", "/api/integrations/github", "/api/transcribe", "/api/speak"}:
             self.send_error(404, "Not found")
             return
 
@@ -67,7 +71,9 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 self.send_audio(200, self.speak_text(json.loads(body.decode("utf-8"))))
                 return
             payload = json.loads(body.decode("utf-8"))
-            if self.path == "/api/workspace/write":
+            if self.path == "/api/projects":
+                response = self.create_project(payload)
+            elif self.path == "/api/workspace/write":
                 response = self.write_workspace_file(payload)
             elif self.path == "/api/integrations/github":
                 response = self.connect_github(payload)
@@ -83,10 +89,15 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/workspace":
-            self.send_json(200, {"root": str(ROOT), "files": self.workspace_files()})
+            root = self.resolve_workspace_root(parse_qs(parsed.query).get("root", [""])[0])
+            self.send_json(200, {"root": str(root), "files": self.workspace_files(root)})
             return
         if parsed.path == "/api/config":
-            self.send_json(200, {"models": MODEL_PROFILES, "skills": SKILLS, "contextWindow": DEFAULT_CONTEXT_WINDOW})
+            lm = self.lm_status()
+            self.send_json(200, {"models": lm["models"], "skills": SKILLS, "contextWindow": lm["contextWindow"], "lm": lm})
+            return
+        if parsed.path == "/api/lm/status":
+            self.send_json(200, self.lm_status())
             return
         if parsed.path == "/api/lm/models":
             self.send_json(200, self.lm_models())
@@ -96,24 +107,34 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
             self.send_json(200, self.preview_workspace_file(relative))
             return
         if parsed.path == "/api/obsidian/scan":
-            path = parse_qs(parsed.query).get("path", [""])[0]
+            path = parse_qs(parsed.query).get("path", [str(DEFAULT_OBSIDIAN_PATH)])[0]
             self.send_json(200, self.scan_markdown_root(path))
             return
         super().do_GET()
 
-    def workspace_files(self):
+    def resolve_workspace_root(self, configured_path):
+        if not configured_path:
+            return ROOT
+        target = self.resolve_allowed_path(configured_path)
+        if not target.is_dir():
+            raise NotADirectoryError(str(configured_path))
+        if target != ROOT and PROJECTS_DIR not in target.parents:
+            raise ValueError("Project workspaces must be inside the projects directory")
+        return target
+
+    def workspace_files(self, workspace_root=ROOT):
         files = []
-        for path in ROOT.rglob("*"):
+        for path in workspace_root.rglob("*"):
             if not path.is_file() or any(part in IGNORED_DIRS for part in path.parts):
                 continue
-            files.append(path.relative_to(ROOT).as_posix())
+            files.append(path.relative_to(workspace_root).as_posix())
         return sorted(files)
 
-    def workspace_context(self, prompt):
+    def workspace_context(self, prompt, workspace_root=ROOT):
         words = {word.lower() for word in re.findall(r"[\w.-]+", prompt)}
         candidates = []
-        for relative in self.workspace_files():
-            path = ROOT / relative
+        for relative in self.workspace_files(workspace_root):
+            path = workspace_root / relative
             if path.suffix.lower() not in TEXT_EXTENSIONS:
                 continue
             score = sum(1 for word in words if word in relative.lower())
@@ -124,7 +145,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         context = []
         used = 0
         for _, relative in sorted(candidates, key=lambda item: (-item[0], item[1])):
-            path = ROOT / relative
+            path = workspace_root / relative
             try:
                 content = path.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
@@ -135,7 +156,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
             content = content[: min(5000, remaining)]
             context.append(f"\n--- {relative} ---\n{content}")
             used += len(content)
-        return "\nArquivos disponiveis no workspace:\n" + "\n".join(self.workspace_files()) + "\n\nConteudo relevante:\n" + "".join(context)
+        return "\nWorkspace files:\n" + "\n".join(self.workspace_files(workspace_root)) + "\n\nRelevant contents:\n" + "".join(context)
 
     def resolve_allowed_path(self, relative):
         candidate = Path(str(relative).replace("\\", "/")).expanduser()
@@ -143,7 +164,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
             candidate = ROOT / candidate
         target = candidate.resolve()
         if not any(root == target or root in target.parents for root in ALLOWED_ROOTS):
-            raise ValueError("O caminho nao esta em uma raiz permitida")
+            raise ValueError("The path is not inside an approved root")
         return target
 
     def preview_workspace_file(self, relative):
@@ -158,7 +179,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         elif suffix == ".pdf":
             result["content"] = "PDF detected. Use a local PDF tool to extract text on demand."
         elif suffix in {".xlsx", ".xls", ".parquet", ".db", ".sqlite"}:
-            result["content"] = "Formato estruturado detectado. O agente deve inspecionar apenas metadados e amostras sob demanda."
+            result["content"] = "Structured file detected. Inspect metadata and samples on demand."
         return result
 
     def scan_markdown_root(self, configured_path):
@@ -175,37 +196,66 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
     def connect_github(self, payload):
         token = str(payload.get("token", "")).strip()
         repository = str(payload.get("repository", "")).strip().strip("/")
-        if not token or not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
-            raise ValueError("Informe um token e repositorio no formato usuario/repositorio")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository):
+            raise ValueError("Enter a repository in the owner/repository format")
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "Mega-Brain"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         request = urllib.request.Request(
             f"https://api.github.com/repos/{repository}",
-            headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}", "User-Agent": "Mega-Brain"},
+            headers=headers,
         )
         with urllib.request.urlopen(request, timeout=20) as response:
             data = json.loads(response.read().decode("utf-8"))
         return {"connected": True, "repository": data.get("full_name"), "private": data.get("private", False), "defaultBranch": data.get("default_branch")}
 
+    def lm_status(self):
+        native_url = BASE_URL.removesuffix("/v1") + "/api/v1/models"
+        try:
+            request = urllib.request.Request(native_url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=10) as response:
+                native = json.loads(response.read().decode("utf-8"))
+            loaded = []
+            for item in native.get("models", []):
+                if item.get("type") != "llm" or not item.get("loaded_instances"):
+                    continue
+                instance = item["loaded_instances"][0]
+                window = int(instance.get("config", {}).get("context_length") or item.get("max_context_length") or DEFAULT_CONTEXT_WINDOW)
+                model_id = str(instance.get("id") or item.get("key") or "").strip()
+                if model_id:
+                    loaded.append({"id": model_id, "label": item.get("display_name") or model_id, "description": f"Loaded in LM Studio ({window:,} tokens)", "window": window})
+            context_window = max((model["window"] for model in loaded), default=DEFAULT_CONTEXT_WINDOW)
+            models = [{"id": "auto", "label": "Auto", "description": "Uses the best loaded model", "window": context_window}, *loaded]
+            return {"connected": True, "baseUrl": BASE_URL, "models": models, "contextWindow": context_window, "loadedModelIds": [item["id"] for item in loaded]}
+        except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError) as error:
+            return {"connected": False, "baseUrl": BASE_URL, "models": MODEL_PROFILES[:1], "contextWindow": DEFAULT_CONTEXT_WINDOW, "loadedModelIds": [], "error": str(error)}
+
     def lm_models(self):
-        request = urllib.request.Request(
-            f"{BASE_URL}/models",
-            headers={"Accept": "application/json", "Authorization": "Bearer lm-studio"},
-        )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        loaded = []
-        for item in data.get("data", []):
-            model_id = str(item.get("id", "")).strip()
-            if model_id:
-                loaded.append({"id": model_id, "label": model_id, "description": "Loaded in LM Studio", "window": DEFAULT_CONTEXT_WINDOW})
-        return {"models": [MODEL_PROFILES[0], *loaded]}
+        return {"models": self.lm_status()["models"]}
+
+    def create_project(self, payload):
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            raise ValueError("Project name is required")
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64] or "project"
+        PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+        target = PROJECTS_DIR / slug
+        suffix = 2
+        while target.exists():
+            target = PROJECTS_DIR / f"{slug}-{suffix}"
+            suffix += 1
+        target.mkdir(parents=True)
+        (target / ".mega-brain-project.json").write_text(json.dumps({"name": name}, indent=2), encoding="utf-8")
+        return {"id": target.name, "name": name, "path": str(target), "relativePath": target.relative_to(PROJECTS_DIR).as_posix()}
 
     def write_workspace_file(self, payload):
         relative = str(payload.get("path", "")).replace("\\", "/").strip("/")
         if not relative or relative.startswith("../") or "/../" in f"/{relative}":
             raise ValueError("Invalid file path")
-        target = (ROOT / relative).resolve()
-        if ROOT not in target.parents and target != ROOT:
-            raise ValueError("The file must be inside the workspace")
+        workspace_root = self.resolve_workspace_root(payload.get("workspaceRoot", ""))
+        target = (workspace_root / relative).resolve()
+        if workspace_root not in target.parents and target != workspace_root:
+            raise ValueError("The file must be inside the active project")
         content = payload.get("content", "")
         if not isinstance(content, str):
             content = str(content)
@@ -234,11 +284,12 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 raise OSError(result.stderr.strip() or "Failed to write file")
         else:
             target.write_text(content, encoding="utf-8")
-        return {"ok": True, "path": relative}
+        return {"ok": True, "path": relative, "workspaceRoot": str(workspace_root)}
 
     def forward_to_lm_studio(self, payload):
         base_url = payload.pop("baseUrl", BASE_URL).rstrip("/")
         task_mode = payload.pop("taskMode", "code")
+        workspace_root = self.resolve_workspace_root(payload.pop("workspaceRoot", ""))
         selected_model = payload.get("model", "auto")
         if selected_model == "auto":
             selected_model = self.route_model(task_mode, payload.get("messages", []))
@@ -246,7 +297,7 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         if payload.get("messages"):
             last = payload["messages"][-1]
             if last.get("role") == "user":
-                last["content"] += self.workspace_context(last.get("content", ""))
+                last["content"] += self.workspace_context(last.get("content", ""), workspace_root)
 
         request = urllib.request.Request(
             f"{base_url}/chat/completions",
@@ -264,14 +315,16 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         return result
 
     def route_model(self, task_mode, messages):
+        loaded = self.lm_status()["loadedModelIds"]
+        if not loaded:
+            raise RuntimeError("LM Studio has no loaded LLM. Load a model and start the local server.")
         text = " ".join(item.get("content", "") for item in messages[-2:]).lower()
-        if task_mode in {"review", "architecture", "complex"} or any(word in text for word in {"arquitetura", "refator", "migrat", "seguranca"}):
-            return os.environ.get("MEGA_BRAIN_COMPLEX_MODEL", "qwen2.5-coder-14b-instruct")
-        return os.environ.get("MEGA_BRAIN_FAST_MODEL", "qwen2.5-coder-7b-instruct")
+        preferred = os.environ.get("MEGA_BRAIN_COMPLEX_MODEL", "qwen2.5-coder-14b-instruct") if task_mode in {"review", "architecture", "complex"} or any(word in text for word in {"architecture", "refactor", "migration", "security"}) else os.environ.get("MEGA_BRAIN_FAST_MODEL", "qwen2.5-coder-7b-instruct")
+        return preferred if preferred in loaded else loaded[0]
 
     def usage_metadata(self, payload, task_mode, selected_model):
         chars = sum(len(item.get("content", "")) for item in payload.get("messages", []))
-        window = next((item["window"] for item in MODEL_PROFILES if item["id"] == selected_model), DEFAULT_CONTEXT_WINDOW)
+        window = next((item["window"] for item in self.lm_status()["models"] if item["id"] == selected_model), DEFAULT_CONTEXT_WINDOW)
         estimated = max(1, chars // 4)
         return {"model": selected_model, "taskMode": task_mode, "estimatedTokens": estimated, "contextWindow": window, "percent": min(100, round(estimated / window * 100, 1))}
 
