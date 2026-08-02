@@ -5,6 +5,8 @@ import os
 import re
 import subprocess
 import tempfile
+import shutil
+import site
 import urllib.error
 import urllib.request
 from urllib.parse import parse_qs, urlparse
@@ -31,9 +33,10 @@ MODEL_PROFILES = [
     {"id": "qwen2.5-coder-7b-instruct", "label": "Qwen Coder 7B", "description": "Fast tasks and reading", "window": 8192},
 ]
 WHISPER_MODEL = os.environ.get("MEGA_BRAIN_WHISPER_MODEL", "small")
-PIPER_BINARY = os.environ.get("MEGA_BRAIN_PIPER_BINARY", "piper")
-PIPER_EN_VOICE = os.environ.get("MEGA_BRAIN_PIPER_EN_VOICE", "")
-PIPER_PT_VOICE = os.environ.get("MEGA_BRAIN_PIPER_PT_VOICE", "")
+VOICE_DIR = ROOT / "voices"
+PIPER_BINARY = os.environ.get("MEGA_BRAIN_PIPER_BINARY", shutil.which("piper") or str(Path(site.getuserbase()) / "Scripts" / "piper.exe"))
+PIPER_EN_VOICE = os.environ.get("MEGA_BRAIN_PIPER_EN_VOICE", str(VOICE_DIR / "en_US-lessac-medium.onnx"))
+PIPER_PT_VOICE = os.environ.get("MEGA_BRAIN_PIPER_PT_VOICE", str(VOICE_DIR / "pt_BR-faber-medium.onnx"))
 _whisper = None
 SKILLS = [
     {"id": "engineering-core", "name": "Engineering Core", "category": "Architecture", "description": "Short plan, small change, verification, and evidence.", "source": "local"},
