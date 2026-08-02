@@ -80,4 +80,18 @@ O comportamento principal fica em:
 agent_prompt.txt
 ```
 
-Ele e curto de proposito para economizar VRAM/contexto. O frontend tambem envia apenas as ultimas mensagens configuradas em `Historico enviado`, mantendo o sistema mais leve para modelos locais como Qwen.
+Ele e curto de proposito para economizar VRAM/contexto. O servidor injeta a lista do workspace e trechos dos arquivos relevantes na mensagem atual; o frontend envia apenas as ultimas mensagens configuradas em `Historico enviado`.
+
+Quando a tarefa pede uma alteracao, o agente pode retornar blocos no formato `mega-write`. O frontend e o CLI salvam esses blocos somente em caminhos relativos dentro deste workspace. Assim o Qwen consegue trabalhar como agente de codigo sem precisar de function calling, grammar ou structured output.
+
+Exemplos de pedidos:
+
+```text
+Inspecione o frontend atual e corrija o erro de conexao com o LM Studio. Altere os arquivos necessarios e diga como testar.
+```
+
+```text
+Implemente uma tabela SQL e um pipeline Python para carregar os dados. Crie os arquivos e valide a estrutura.
+```
+
+Para tarefas maiores, trabalhe em etapas curtas: primeiro peca a analise, depois a implementacao, e por fim os testes. Isso reduz o uso de VRAM sem retirar a capacidade de codar.

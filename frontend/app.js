@@ -79,7 +79,25 @@ async function requestCompletion() {
   }
 
   const data = JSON.parse(text);
-  return data.choices?.[0]?.message?.content?.trim() || "Sem conteudo na resposta.";
+  const answer = data.choices?.[0]?.message?.content?.trim() || "Sem conteudo na resposta.";
+  await applyAgentWrites(answer);
+  return answer;
+}
+
+async function applyAgentWrites(answer) {
+  const writePattern = /<mega-write\s+path="([^"]+)">([\s\S]*?)<\/mega-write>/g;
+  const writes = [...answer.matchAll(writePattern)];
+  for (const [, path, content] of writes) {
+    const response = await fetch("/api/workspace/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, content }),
+    });
+    if (!response.ok) throw new Error(`Falha ao salvar ${path}: ${await response.text()}`);
+  }
+  if (writes.length) {
+    statusEl.textContent = `${writes.length} arquivo(s) salvo(s)`;
+  }
 }
 
 composer.addEventListener("submit", async (event) => {
