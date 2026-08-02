@@ -333,18 +333,21 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         if workspace_root not in target.parents or not target.is_file():
             raise ValueError("The edit target must be an existing file in the active project")
         content = target.read_text(encoding="utf-8", errors="replace")
-        occurrences = content.count(search)
-        if occurrences == 1:
-            updated = content.replace(search, replacement, 1)
-        elif target.suffix.lower() == ".css":
-            updated = self.replace_css_rule(content, search, replacement)
-        else:
-            raise ValueError(f"SEARCH text must match exactly once in {relative}; found {occurrences} matches")
+        updated = self.apply_edit_content(target, content, search, replacement)
         validation = self.validate_file_content(target, updated)
         if not validation["ok"]:
             raise ValueError(validation["message"])
         target.write_text(updated, encoding="utf-8")
         return {"ok": True, "path": relative, "workspaceRoot": str(workspace_root), "validation": validation}
+
+    def apply_edit_content(self, target, content, search, replacement):
+        occurrences = content.count(search)
+        if occurrences == 1:
+            return content.replace(search, replacement, 1)
+        elif target.suffix.lower() == ".css":
+            return self.replace_css_rule(content, search, replacement)
+        else:
+            raise ValueError(f"SEARCH text must match exactly once in {target.name}; found {occurrences} matches")
 
     def replace_css_rule(self, content, search, replacement):
         selector = search.strip().rstrip("{").strip()
@@ -398,8 +401,14 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
                 last["content"] += self.workspace_context(last.get("content", ""), workspace_root)
         payload.setdefault("max_tokens", int(os.environ.get("MEGA_BRAIN_MAX_OUTPUT_TOKENS", "4096")))
         result = self.request_completion(base_url, payload)
-        if self.requires_write(payload.get("messages", [])) and not self.has_agent_change(result):
-            result = self.repair_non_agent_response(base_url, payload, result)
+        if self.requires_write(payload.get("messages", [])):
+            for attempt in range(3):
+                valid, reason = self.validate_agent_changes(result, workspace_root)
+                if valid:
+                    break
+                if attempt == 2:
+                    raise RuntimeError("The model could not produce a safe, applicable file change after two repair attempts")
+                result = self.repair_non_agent_response(base_url, payload, result, reason)
         result["mega"] = self.usage_metadata(payload, task_mode, selected_model)
         return result
 
@@ -421,12 +430,50 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
         return bool(re.search(r"<mega-(?:write|edit)\s+path=\"[^\"]+\">[\s\S]+?</mega-(?:write|edit)>", content))
 
-    def repair_non_agent_response(self, base_url, payload, prior_result):
+    def validate_agent_changes(self, result, workspace_root):
+        if not self.has_agent_change(result):
+            return False, "No mega-write or mega-edit block was returned."
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        writes = list(re.finditer(r"<mega-write\s+path=\"([^\"]+)\">([\s\S]*?)</mega-write>", content))
+        edits = list(re.finditer(r"<mega-edit\s+path=\"([^\"]+)\">\s*SEARCH:\s*\n([\s\S]*?)\nREPLACE:\s*\n([\s\S]*?)</mega-edit>", content))
+        if not writes and not edits:
+            return False, "The agent block format is invalid."
+        try:
+            for match in writes:
+                relative, file_content = match.groups()
+                target = self.agent_target(workspace_root, relative, require_existing=False)
+                validation = self.validate_file_content(target, file_content)
+                if not validation["ok"]:
+                    return False, validation["message"]
+            for match in edits:
+                relative, search, replacement = match.groups()
+                target = self.agent_target(workspace_root, relative, require_existing=True)
+                existing = target.read_text(encoding="utf-8", errors="replace")
+                updated = self.apply_edit_content(target, existing, search, replacement)
+                validation = self.validate_file_content(target, updated)
+                if not validation["ok"]:
+                    return False, validation["message"]
+        except (OSError, ValueError) as error:
+            return False, str(error)
+        return True, "Applicable change"
+
+    def agent_target(self, workspace_root, relative, require_existing):
+        normalized = str(relative).replace("\\", "/").strip("/")
+        if not normalized or normalized.startswith("../") or "/../" in f"/{normalized}":
+            raise ValueError("Agent returned an invalid relative path")
+        target = (workspace_root / normalized).resolve()
+        if workspace_root not in target.parents:
+            raise ValueError("Agent attempted to leave the active project")
+        if require_existing and not target.is_file():
+            raise ValueError(f"Agent edit target does not exist: {normalized}")
+        return target
+
+    def repair_non_agent_response(self, base_url, payload, prior_result, reason):
         prior_answer = prior_result.get("choices", [{}])[0].get("message", {}).get("content", "")
         repair_payload = json.loads(json.dumps(payload))
         repair_payload["messages"].append({
             "role": "user",
-            "content": f"The previous answer below was rejected because it did not modify files. Execute the original request now. For existing files return exact <mega-edit> SEARCH/REPLACE blocks. Use <mega-write> only for a new or short file. Do not provide advice.\n\nRejected answer:\n{prior_answer}",
+            "content": f"The previous agent response was rejected before any file was changed. Reason: {reason}\nExecute the original request again. For existing files return an exact <mega-edit> SEARCH/REPLACE block using text copied from the supplied workspace context. Use <mega-write> only for a new or short file. Do not provide advice.\n\nRejected answer:\n{prior_answer}",
         })
         return self.request_completion(base_url, repair_payload)
 
