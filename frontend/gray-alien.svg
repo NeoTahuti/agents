@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Gray alien avatar">
+  <rect width="256" height="256" rx="28" fill="#101b22"/>
+  <ellipse cx="128" cy="137" rx="78" ry="92" fill="#8d9997" stroke="#c8d1ca" stroke-width="4"/>
+  <path d="M63 112c10-56 34-79 65-79s55 23 65 79c-28-15-102-15-130 0z" fill="#aeb8b2" opacity=".85"/>
+  <ellipse cx="91" cy="137" rx="28" ry="38" fill="#081018" transform="rotate(13 91 137)"/>
+  <ellipse cx="165" cy="137" rx="28" ry="38" fill="#081018" transform="rotate(-13 165 137)"/>
+  <ellipse cx="95" cy="127" rx="8" ry="12" fill="#5eede8" opacity=".72"/>
+  <ellipse cx="161" cy="127" rx="8" ry="12" fill="#5eede8" opacity=".72"/>
+  <path d="M108 184c13 7 27 7 40 0" fill="none" stroke="#53615f" stroke-width="4" stroke-linecap="round"/>
+  <path d="M51 232c16-26 42-38 77-38s61 12 77 38" fill="#6d7c7a" stroke="#b8c5bd" stroke-width="3"/>
+  <circle cx="28" cy="44" r="2" fill="#63e3ff"/><circle cx="224" cy="54" r="2" fill="#e7b456"/><circle cx="210" cy="211" r="2" fill="#63e3ff"/>
+</svg>

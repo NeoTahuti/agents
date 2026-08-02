@@ -88,6 +88,9 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/config":
             self.send_json(200, {"models": MODEL_PROFILES, "skills": SKILLS, "contextWindow": DEFAULT_CONTEXT_WINDOW})
             return
+        if parsed.path == "/api/lm/models":
+            self.send_json(200, self.lm_models())
+            return
         if parsed.path == "/api/workspace/preview":
             relative = parse_qs(parsed.query).get("path", [""])[0]
             self.send_json(200, self.preview_workspace_file(relative))
@@ -181,6 +184,20 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         with urllib.request.urlopen(request, timeout=20) as response:
             data = json.loads(response.read().decode("utf-8"))
         return {"connected": True, "repository": data.get("full_name"), "private": data.get("private", False), "defaultBranch": data.get("default_branch")}
+
+    def lm_models(self):
+        request = urllib.request.Request(
+            f"{BASE_URL}/models",
+            headers={"Accept": "application/json", "Authorization": "Bearer lm-studio"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        loaded = []
+        for item in data.get("data", []):
+            model_id = str(item.get("id", "")).strip()
+            if model_id:
+                loaded.append({"id": model_id, "label": model_id, "description": "Loaded in LM Studio", "window": DEFAULT_CONTEXT_WINDOW})
+        return {"models": [MODEL_PROFILES[0], *loaded]}
 
     def write_workspace_file(self, payload):
         relative = str(payload.get("path", "")).replace("\\", "/").strip("/")
@@ -318,8 +335,12 @@ class MegaBrainHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
-if __name__ == "__main__":
+def run_server():
     server = ThreadingHTTPServer(("localhost", PORT), MegaBrainHandler)
     print(f"Mega Brain em http://localhost:{PORT}/frontend/")
     print(f"Proxy LM Studio: {BASE_URL}")
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    run_server()
