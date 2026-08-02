@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Mega Brain no espaco">
+  <rect width="256" height="256" rx="28" fill="#06131d"/>
+  <g fill="#173843" stroke="#35d0c2" stroke-width="3">
+    <path d="M80 149c-21-9-30-28-24-47 4-13 14-21 26-23 5-21 21-31 39-25 14-16 39-12 47 7 19-2 33 12 32 30 15 9 17 30 4 43-5 5-11 8-18 9-4 18-22 28-39 21-13 13-36 10-43-7-9 1-18-2-24-8z"/>
+    <path d="M80 105c15-8 25 7 13 16 17-2 25 18 9 24 18 4 14 24-1 24M116 74c-7 13 11 19 18 8-3 17 16 22 25 9M159 88c-11 10 2 20 13 15-5 15 12 22 21 12M120 119c-10 8-2 22 10 19-5 15 12 22 22 12" fill="none" stroke="#63e3ff" stroke-linecap="round"/>
+  </g>
+  <g fill="none" stroke="#e7b456" stroke-width="2" opacity=".75"><ellipse cx="128" cy="128" rx="108" ry="39" transform="rotate(-18 128 128)"/><ellipse cx="128" cy="128" rx="118" ry="50" transform="rotate(25 128 128)"/></g>
+  <g fill="#63e3ff"><circle cx="31" cy="52" r="2"/><circle cx="217" cy="39" r="2"/><circle cx="225" cy="207" r="2"/><circle cx="47" cy="206" r="1.5"/></g>
+  <g transform="translate(184 174)"><circle r="18" fill="#102b35" stroke="#35d0c2" stroke-width="2"/><circle cx="-6" cy="-2" r="3" fill="#63e3ff"/><circle cx="6" cy="-2" r="3" fill="#63e3ff"/><path d="M-6 7c4 3 8 3 12 0" fill="none" stroke="#e7b456" stroke-width="2"/></g>
+</svg>

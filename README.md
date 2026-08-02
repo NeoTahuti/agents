@@ -1,6 +1,26 @@
 # Mega Brain
 
-Interface local simples para usar modelos servidos pelo LM Studio em modo OpenAI-compatible.
+Interface local para usar modelos servidos pelo LM Studio em modo OpenAI-compatible, com foco em agente de engenharia de software e contexto compacto.
+
+## Estado do app
+
+O frontend concentra o fluxo principal do Mega Brain:
+
+- Projetos e conversas organizados no navegador via armazenamento local.
+- Roteamento `Auto` entre modelo rapido e modelo complexo por tipo de tarefa.
+- Medidor de tokens estimados, janela e percentual usado.
+- Skills enxutas ativadas por relevancia, no formato portatil `SKILL.md`.
+- Leitura do workspace, preview de arquivos estruturados e scan de notas Markdown do Obsidian.
+- Conexao GitHub por sessao, sem persistir o token no app.
+- Loop visual Entender -> Construir -> Rechecar.
+
+As referencias publicas usadas para os contratos de skills ficam em `skills.json`. O Mega Brain nao copia automaticamente repositorios de terceiros para dentro do prompt; ele mantem apenas instrucoes compactas e ativa o minimo necessario para preservar VRAM.
+
+## Modelos e hardware
+
+Com 16 GB de VRAM e 32 GB de RAM, use `Auto` como padrao. O roteador usa o modelo menor para leitura, respostas simples e tarefas de dados; tarefas de arquitetura, refatoracao e seguranca podem usar o modelo maior configurado por `MEGA_BRAIN_COMPLEX_MODEL`. Ajuste `MEGA_BRAIN_CONTEXT_WINDOW` se o modelo carregado tiver outra janela.
+
+Para fontes externas, defina `MEGA_BRAIN_ALLOWED_ROOTS` com caminhos adicionais separados por `;` no Windows. Isso permite conectar um vault Obsidian sem liberar o computador inteiro.
 
 ## Uso via CLI
 

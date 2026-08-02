@@ -3,80 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mega Brain</title>
+    <title>Mega Brain // Local Coding Intelligence</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark">MB</div>
-          <div>
-            <strong>Mega Brain</strong>
-            <span>Local workspace</span>
-          </div>
+        <div class="brand-block">
+          <div class="brand-orbit"><span>MB</span></div>
+          <div><strong>Mega Brain</strong><small>LOCAL CODING INTELLIGENCE</small></div>
         </div>
 
-        <button class="new-chat" id="newChatButton">+ Nova conversa</button>
+        <button class="primary-action" id="newChatButton"><span>＋</span> Nova conversa</button>
 
-        <nav class="thread-list" aria-label="Conversas">
-          <button class="thread active">Agente de codigo</button>
-          <button class="thread">Front end</button>
-          <button class="thread">Back end</button>
-          <button class="thread">SQL e dados</button>
-        </nav>
-
-        <section class="settings">
-          <label>
-            Endpoint
-            <input id="baseUrlInput" value="http://localhost:1234/v1" />
-          </label>
-          <label>
-            Modelo
-            <input id="modelInput" value="local-model" />
-          </label>
-          <label>
-            Temperatura
-            <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.7" />
-          </label>
-          <label>
-            Historico enviado
-            <input id="contextLimitInput" type="number" min="2" max="20" step="1" value="8" />
-          </label>
-          <label>
-            Prompt do agente
-            <textarea id="systemPromptInput" rows="7"></textarea>
-          </label>
+        <section class="project-section">
+          <div class="section-heading"><span>Projetos</span><button class="icon-button" id="newProjectButton" title="Criar projeto">＋</button></div>
+          <div id="projectTree" class="project-tree"></div>
         </section>
+
+        <section class="thread-section">
+          <div class="section-heading"><span>Conversas recentes</span><span class="count" id="threadCount">0</span></div>
+          <div id="threadList" class="thread-list"></div>
+        </section>
+
+        <div class="sidebar-foot"><span class="pulse-dot"></span><span id="connectionLabel">LM Studio offline</span><button class="icon-button" id="openSettingsButton" title="Abrir painel de configuração">⚙</button></div>
       </aside>
 
-      <main class="workspace">
+      <main class="main-stage">
         <header class="topbar">
-          <div>
-            <h1>Mega Brain</h1>
-          <p>Agente local com leitura do workspace e alteracoes controladas via LM Studio e Qwen.</p>
+          <div class="task-identity"><span class="eyebrow">MEGA BRAIN / WORKSPACE</span><h1 id="activeThreadTitle">Agente de código</h1><p id="activeProjectLabel">Projeto local</p></div>
+          <div class="top-controls">
+            <label class="compact-select"><span>Estratégia</span><select id="taskModeInput"><option value="code">Implementar</option><option value="review">Revisar</option><option value="debug">Debug</option><option value="architecture">Arquitetura</option><option value="data">Dados</option></select></label>
+            <label class="compact-select"><span>Modelo</span><select id="modelInput"></select></label>
+            <div class="context-pill"><div class="meter-ring" id="contextRing"><span id="contextPercent">0%</span></div><div><b id="contextTokens">0 / 8k</b><small>contexto usado</small></div></div>
           </div>
-          <div class="status" id="status">Pronto</div>
         </header>
 
-        <section class="messages" id="messages" aria-live="polite">
-          <article class="message assistant">
-            <div class="avatar">MB</div>
-            <div class="bubble">
-              Sou um agente de codigo. Posso analisar os arquivos deste workspace,
-              alterar front end, back end, SQL e Python, e orientar os testes. Peça
-              diretamente: “corrija o erro X” ou “implemente Y”.
+        <div class="content-grid">
+          <section class="chat-column">
+            <div class="conversation" id="messages" aria-live="polite">
+              <article class="message assistant welcome-message"><div class="message-avatar"><img src="./mega-brain-space.svg" alt="Mega Brain no espaço" /><span>✦</span></div><div class="message-body"><div class="message-meta"><strong>Mega Brain</strong><span>ONLINE LOCAL</span></div><div class="bubble">Núcleo acordado. Eu leio o workspace, seleciono skills e modelo por tarefa, altero código e fecho o ciclo com validação. <b>Qual sistema vamos melhorar?</b></div><div class="quick-actions"><button data-prompt="Inspecione a estrutura deste projeto e proponha os próximos três ganhos de engenharia.">Mapear workspace</button><button data-prompt="Faça uma revisão crítica do código atual, encontre o maior risco e corrija-o com teste.">Revisar código</button></div></div></article>
             </div>
-          </article>
-        </section>
+            <form class="composer" id="composer"><div class="composer-tools"><button type="button" class="icon-button" id="attachButton" title="Adicionar arquivo ao contexto">⌕</button><input id="fileInput" type="file" multiple hidden /><span id="attachmentLabel">Contexto compacto ativo</span></div><textarea id="promptInput" rows="1" placeholder="Diga o que precisa ser construído..."></textarea><div class="composer-footer"><span>Enter envia · Shift+Enter quebra linha</span><button class="send-button" id="sendButton" type="submit"><span>Enviar</span><b>↗</b></button></div></form>
+          </section>
 
-        <form class="composer" id="composer">
-          <textarea id="promptInput" rows="1" placeholder="Digite sua mensagem..."></textarea>
-          <button id="sendButton" type="submit">Enviar</button>
-        </form>
+          <aside class="inspector">
+            <section class="inspector-card"><div class="card-title"><span>Skills ativas</span><span class="live-tag">AUTO</span></div><div id="skillsList" class="skills-list"></div></section>
+            <section class="inspector-card"><div class="card-title"><span>Fontes de contexto</span><button class="icon-button" id="scanVaultButton" title="Escanear Obsidian">↻</button></div><div class="source-row"><span class="source-icon">⌂</span><div><b>Workspace local</b><small id="workspaceLabel">carregando arquivos...</small></div><i class="source-status"></i></div><div class="source-row muted-source"><span class="source-icon">◈</span><div><b>Obsidian vault</b><small id="vaultLabel">não conectado</small></div><button class="text-button" id="vaultButton">Conectar</button></div><div class="source-row muted-source"><span class="source-icon">⌘</span><div><b>GitHub</b><small id="githubLabel">não conectado</small></div><button class="text-button" id="githubButton">Conectar</button></div></section>
+            <section class="inspector-card quality-card"><div class="card-title"><span>Loop de qualidade</span><span class="check-mark">✓</span></div><div class="quality-step done"><span>01</span><div><b>Entender</b><small>objetivo e arquivos</small></div></div><div class="quality-step active"><span>02</span><div><b>Construir</b><small>patch mínimo e limpo</small></div></div><div class="quality-step"><span>03</span><div><b>Rechecar</b><small>teste e evidência</small></div></div></section>
+          </aside>
+        </div>
       </main>
     </div>
-
+    <div id="toast" class="toast" role="status"></div>
     <script src="./app.js" type="module"></script>
   </body>
 </html>

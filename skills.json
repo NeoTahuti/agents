@@ -1,0 +1,17 @@
+{
+  "format": "agent-skills",
+  "version": 1,
+  "sources": [
+    {"repository": "addyosmani/agent-skills", "purpose": "engineering workflows, review, testing and architecture"},
+    {"repository": "LambdaTest/agent-skills", "purpose": "testing playbooks for Playwright, pytest and other frameworks"},
+    {"repository": "modelcontextprotocol/servers", "purpose": "filesystem and connector patterns with explicit roots"},
+    {"repository": "huggingface/skills", "purpose": "portable SKILL.md format and data/ML workflows"}
+  ],
+  "installed": [
+    {"id": "engineering-core", "name": "Engineering Core", "activation": "always", "instructions": "Plan small, implement, review, test and report evidence."},
+    {"id": "systematic-debugging", "name": "Systematic Debugging", "activation": "error, bug, failing, nao funciona", "instructions": "Reproduce, isolate, hypothesize, patch, verify and prevent regression."},
+    {"id": "test-first", "name": "Test First", "activation": "test, teste, coverage, validar", "instructions": "Choose the smallest meaningful test and run it after the change."},
+    {"id": "data-pipelines", "name": "Data Pipelines", "activation": "csv, xlsx, json, yaml, sql, dados, pipeline", "instructions": "Inspect schema and samples first; preserve types, validation and reproducibility."},
+    {"id": "git-review", "name": "Git Review", "activation": "git, github, commit, pull request", "instructions": "Keep diffs focused, inspect status and summarize risk before publishing."}
+  ]
+}
